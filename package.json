@@ -24,7 +24,6 @@
   },
   "homepage": "https://github.com/federico-r-figueredo/node-app#readme",
   "dependencies": {
-    "mongoose": "^7.2.1",
     "underscore": "^1.13.6"
   },
   "devDependencies": {
