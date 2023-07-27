@@ -1,104 +1,141 @@
 const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
-const Course = require('../models/Course');
 const debug = require('debug')('app:routes:courses');
+const { Course, validateCourse } = require('../models/Course');
+const validateObjectID = require('../validators/objectID');
+const authenticate = require('../middleware/authenticate');
+const authorize = require('../middleware/authorize');
+const async = require('../middleware/async');
 
-router.get('/', async (req, res) => {
-    res.send(await getCourses());
-});
+const router = express.Router();
 
-router.get('/:id', async (req, res) => {
-    const course = await getCourse(req.params.id);
+// prettier-ignore
+router.get('/', authenticate, async(async (req, res) => {
+    const result = await getCourses();
+    res.send(result);
+}));
+
+// prettier-ignore
+router.get('/:id', authenticate, async(async (req, res) => {
+    let result = await validateObjectID(req.params.id);
+    if (!result.success) return res.status(400).send(result);
+
+    result = await getCourse(req.params.id);
+    if (!result.success) return res.status(404).send(result);
+
+    res.send(result);
+}));
+
+// prettier-ignore
+router.post('/', authenticate, async(async (req, res) => {
+    let result = validateCourse(req.body);
+    if (!result.success) return res.status(400).send(result);
+
+    result = await createCourse(req.body);
+
+    res.send(result);
+}));
+
+// prettier-ignore
+router.put('/:id', authenticate, async(async (req, res) => {
+    let result = await validateObjectID(req.params.id);
+    if (!result.success) return res.status(400).send(result);
+
+    result = await getCourse(req.params.id);
+    if (!result.success) return res.status(404).send(result);
+
+    result = validateCourse(req.body);
+    if (!result.success) return res.status(400).send(result);
+
+    result = await updateCourse(req.params.id, req.body);
+
+    res.send(result);
+}));
+
+// prettier-ignore
+router.delete('/:id', [authenticate, authorize], async(async (req, res) => {
+    result = await validateObjectID(req.params.id);
+    if (!result.success) return res.status(400).send(result);
+
+    result = await getCourse(req.params.id);
+    if (!result.success) return res.status(404).send(result);
+
+    result = await deleteCourse(req.params.id);
+
+    res.send(result);
+}));
+
+async function getCourses() {
+    return {
+        success: true,
+        error: null,
+        payload: await Course.find().limit(10).sort({ name: 1 })
+    };
+}
+
+async function getCourse(id) {
+    const course = await Course.findById(id);
     if (!course)
-        return res
-            .status(404)
-            .send('The course with the given ID was not found.');
+        return {
+            success: false,
+            error: `The course with the given ID (${id}) wasn't found.`,
+            payload: null
+        };
 
-    res.send(course);
-});
-
-router.post('/', async (req, res) => {
-    const { error } = validateCourse(req.body);
-    if (error) return res.status(400).send(error.details[0].message);
-
-    res.send(await createCourse(req.body));
-});
-
-router.put('/:id', async (req, res) => {
-    const course = await getCourse(req.params.id);
-    if (!course)
-        return res
-            .status(404)
-            .send('The course with the given ID was not found.');
-
-    const { error } = validateCourse(req.body);
-    if (error) return res.status(400).send(error.details[0].message);
-
-    res.send(await updateCourse(req.params.id, req.body));
-});
-
-router.delete('/:id', async (req, res) => {
-    const course = await getCourse(req.params.id);
-    if (!course)
-        return res
-            .status(404)
-            .send('The course with the given ID was not found.');
-
-    res.send(await deleteCourse(req.params.id));
-});
-
-function validateCourse(course) {
-    const schema = Joi.object({
-        name: Joi.string().min(3).required(),
-        author: Joi.string().min(3).required(),
-        tags: Joi.array(),
-        isPublished: Joi.boolean().required(),
-        price: Joi.number()
-    });
-
-    return schema.validate(course);
+    return {
+        success: true,
+        error: null,
+        payload: course
+    };
 }
 
 async function createCourse(dto) {
     const course = new Course({
         name: dto.name,
         author: dto.author,
+        category: dto.category,
         tags: dto?.tags ?? [],
         isPublished: dto?.isPublished ?? false,
         price: dto.price ?? 0
     });
 
-    return await course.save();
-}
-
-async function getCourses() {
-    return await Course.find().limit(10).sort({ name: 1 });
-}
-
-async function getCourse(id) {
-    debug(id);
-    return await Course.findById(id);
+    await course.validate();
+    return {
+        success: true,
+        error: null,
+        payload: await course.save()
+    };
 }
 
 async function updateCourse(id, dto) {
     const course = await Course.findById(id);
-    if (!course) return;
+    if (!course)
+        return {
+            success: false,
+            error: `Course with ID = ${id} wasn't found.`,
+            payload: null
+        };
 
     course.name = dto.name;
-    course.tags = dto.tags;
     course.author = dto.author;
+    course.category = dto.category;
+    course.tags = dto.tags;
     course.isPublished = dto.isPublished;
     course.price = dto.price;
 
-    return await course.save();
+    await course.validate();
+    return {
+        success: true,
+        error: null,
+        payload: await course.save()
+    };
 }
 
 async function deleteCourse(id) {
-    const course = await Course.findById(id);
-    if (!course) return;
-
-    return await Course.findByIdAndDelete(id);
+    return {
+        success: true,
+        error: null,
+        payload: await Course.findByIdAndDelete(id)
+    };
 }
 
 module.exports = router;
